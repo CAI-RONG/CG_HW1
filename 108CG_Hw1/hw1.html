@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>three.js webgl - geometry - cube</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<style>
+			body {
+				margin: 0px;
+				background-color: #000000;
+				overflow: hidden;
+			}
+		</style>
+	</head>
+	<body>
+		<script src="three.js/build/three.r89.min.js"></script>
+		<script src="js/controls/OrbitControls.js"></script>
+		<script src="js/libs/dat.gui.min.js"></script>
+
+		<script>
+			"use strict";
+			var controls;
+			var light, light2, light3;
+			var camera, scene, renderer;
+			var mesh;
+			var tank;
+
+			var gravity = -9.8; // 向上為正
+			var velocityH = 0;
+			var heading = 0;
+			var barrelHeading = 0;
+			var lastTime;
+			var plane;
+
+			//control direct
+			var moveForward = false;
+			var moveBackward = false;
+			var moveLeft = false;
+			var moveRight = false;
+			var shoot = false;
+			var turnRight = false;
+			var turnLeft =  false;
+
+			//tank size
+  			var carWidth = 80;
+			var carHeight = 40;
+			var carLength = 120;
+
+			//wheel
+			var wheelRadius = 20;
+			var wheelThickness = 10;
+			var wheelSegments = 100;
+			var wheelMeshes;
+
+			var domeMesh;
+			var axisHelper = new THREE.AxesHelper( 200 );
+			
+			var muzzleMesh;
+			var turretMesh;
+
+			const wheelObjects = [];
+			var plasmaBalls = [];
+			var ballShootDir = [];
+			
+			
+
+			var gui, params;
+			var guiMe = function() {
+			  this.Heading = heading;
+			  this.BarrelHeading = barrelHeading;
+			  this.Velocity = 20;
+			  this.RotSpeed = 10;
+			  this.BarrelRotSpeed = 7;
+			  this.FollowMe = false;
+			};
+
+			init();
+
+			lastTime = Date.now();
+			
+			animate();
+
+			function init() {
+				camera = new THREE.PerspectiveCamera( 45, window.innerWidth / window.innerHeight, 0.01, 5000 );
+    			camera.position.set( 0, 500, 400 );
+
+				scene = new THREE.Scene();
+				// create a light
+				light = new THREE.DirectionalLight(0xffffff);
+				light.position.set(100,200,400);
+				scene.add(light);
+				light2 = new THREE.DirectionalLight(0xffffff);
+				light2.position.set(-400,200,-400);
+				scene.add(light2);
+				light3 = new THREE.DirectionalLight(0xffffff);
+				light3.position.set(100,-400,-400);
+				scene.add(light3);
+
+				// add a ground plane
+				var texture = new THREE.TextureLoader().load( 'textures/UV_Grid_Sm.jpg' );
+				var geometry = new THREE.PlaneGeometry( 1000, 1000 );
+				var material = new THREE.MeshPhongMaterial( {map: texture, side: THREE.DoubleSide} );
+				plane = new THREE.Mesh( geometry, material );
+				plane.rotation.x = -90 * Math.PI / 180;
+				plane.position.y = 0.0;
+				scene.add( plane );
+				scene.add( axisHelper );
+
+				// texture = new THREE.TextureLoader().load( 'textures/BB8.jpg' );
+				// geometry = new THREE.SphereGeometry( 50, 32, 16 );
+				// material = new THREE.MeshPhongMaterial( { map: texture } );
+				// mesh = new THREE.Mesh( geometry, material );
+				// mesh.rotation.y = 90 * Math.PI / 180;
+				// mesh.position.y = -50.01;
+				// scene.add( mesh );
+
+
+				drawTank();
+				renderer = new THREE.WebGLRenderer();
+
+				// set the background color to gray
+				renderer.setClearColor( 0xa0a0a0 );
+				renderer.setPixelRatio( window.devicePixelRatio );
+				renderer.setSize( window.innerWidth, window.innerHeight );
+				document.body.appendChild( renderer.domElement );
+
+				// let's have the mouse affect the view
+				controls = new THREE.OrbitControls( camera, renderer.domElement );
+				controls.enableKeys = false; //關閉使用鍵盤控制畫面的移動
+				window.addEventListener( 'resize', onWindowResize, false );
+
+				// add some GUI
+				params = new guiMe();
+				gui = new dat.GUI();
+				gui.add(params, 'Heading').listen();
+				gui.add(params, 'BarrelHeading').listen();
+				gui.add(params, 'Velocity', 0, 30);
+				gui.add(params, 'RotSpeed', 0, 30);
+				gui.add(params, 'BarrelRotSpeed', 0, 30);
+				gui.add(params, 'FollowMe');
+				gui.open();
+
+				window.onkeydown = function( event ) {
+			        var key = String.fromCharCode(event.keyCode);
+			        switch( event.keyCode ) {
+			          case 87: // w
+							moveForward = true;
+							break;
+			          case 83: // s
+			          		moveBackward = true;
+							break;
+			          case 65: // a
+			          		moveLeft = true;
+							break;
+					  case 68: // d
+			          		moveRight = true;
+							break;
+					  case 32: // space
+					  		shootball();
+					  		velocityH = 40;
+					  		// ballShootDir.push(getShootDir(plasmaBall));
+					  		shoot = true;
+					  		break;
+					  case 37: // left
+					  		turnLeft = true;
+					  		break;
+					  case 39: // right
+					  		turnRight = true;
+					  		break;
+			        }
+			    };
+
+			    window.onkeyup = function( event ) {
+			        var key = String.fromCharCode(event.keyCode);
+			        switch( event.keyCode ) {
+			          case 87: // w
+							moveForward = false;
+							break;
+			          case 83: // s
+			          		moveBackward = false;
+							break;
+			          case 65: // a
+			          		moveLeft = false;
+							break;
+					  case 68: // d
+			          		moveRight = false;
+							break;
+					  case 32: // space
+
+					  		shoot = false;
+					  		break;
+					  case 37: // left
+					  		turnLeft = false;
+					  		break;
+					  case 39: // right
+					  		turnRight = false;
+					  		break;
+			        }
+			    };
+
+			    function shootball(){
+			    	var randomColor = '#' + (Math.random() * 0xFFFFFF << 0).toString(16);
+					var plasmaBall = new THREE.Mesh(new THREE.SphereGeometry(10, 20, 4), new THREE.MeshPhongMaterial({color: randomColor}));
+					// console.log("m",muzzleMesh.getWorldPosition());
+					plasmaBall.position.copy(muzzleMesh.getWorldPosition());
+					// console.log("p",plasmaBall.position);
+					scene.add(plasmaBall);
+
+					plasmaBalls.push(plasmaBall);
+					var temp = getShootDir(plasmaBall);
+
+					ballShootDir.push(temp);
+					
+
+					function getShootDir(target){
+					    var shootDirection = target.position.sub(turretMesh.getWorldPosition());
+					    // console.log("shootDirection",shootDirection);
+					    shootDirection.normalize();
+					    // console.log("shootDirection",shootDirection);
+
+					    return shootDirection;
+					}
+			    }
+			}
+
+			function onWindowResize() {
+				camera.aspect = window.innerWidth / window.innerHeight;
+				camera.updateProjectionMatrix();
+				renderer.setSize( window.innerWidth, window.innerHeight );
+			}
+
+
+			function animate(time) {
+				time += 0.01*20;
+				requestAnimationFrame( animate );
+
+				var deltaTime = Date.now() - lastTime;
+				lastTime = Date.now();
+				// domeMesh.rotateOnAxis ( new THREE.Vector3( 0, 1, 0 ), deltaTime/1000.0);
+				//or rotateOnWorldAxis?? check the document :)
+				
+				// Move the body & head
+				var directionZ = Number( moveForward ) - Number( moveBackward );
+				var directionY = Number( moveLeft ) - Number( moveRight );
+				var domeDirect =  Number( turnLeft ) - Number( turnRight );
+
+				if ( moveForward || moveBackward ) {
+					wheelObjects.forEach((obj) => {
+      					obj.rotation.x = deltaTime * directionZ;
+   		 			});
+					var tickV = (params.Velocity*deltaTime/100.0);
+					var OldPositionX = tank.position.x;
+					var OldPositionZ = tank.position.z;
+
+					// tank.position.x += tickV * Math.sin(heading * Math.PI / 180);
+					// tank.position.z += tickV * Math.cos(heading * Math.PI / 180);
+					tank.translateZ(directionZ * params.Velocity * 0.01 * deltaTime);
+
+
+					// Avoid tank out of bounds 
+					if(tank.position.x > 430 || tank.position.x < -430)
+						tank.position.x = OldPositionX;
+					else
+						tank.position.x = tank.position.x;
+
+					if(tank.position.z > 430 || tank.position.z < -430)
+						tank.position.z = OldPositionZ;
+					else
+						tank.position.z = tank.position.z;
+				}
+
+				if ( moveLeft || moveRight ){
+					wheelObjects.forEach((obj) => {
+						
+						if (obj.id ==20 || obj.id ==22)
+							obj.rotateOnWorldAxis( new THREE.Vector3( 1, 0, 0 ),  time * Math.PI / 180);
+						else
+							obj.rotateOnWorldAxis( new THREE.Vector3( -1, 0, 0 ),  time * Math.PI / 180);
+   		 			});
+					heading	+= directionY * params.RotSpeed;
+			        heading = heading % 360;			     
+					tank.rotateOnWorldAxis( new THREE.Vector3( 0, 1, 0 ), directionY * params.RotSpeed  * Math.PI / 180);
+					
+				}
+
+				if ( turnRight || turnLeft ) {
+					barrelHeading += domeDirect * params.BarrelRotSpeed;
+			        barrelHeading = barrelHeading % 360;			     
+					domeMesh.rotateOnWorldAxis( new THREE.Vector3( 0, 1, 0 ), domeDirect * params.BarrelRotSpeed * Math.PI / 180);
+				}
+
+				if(shoot && deltaTime%4==0 ){
+					// console.log(deltaTime);
+					// var randomColor = '#' + (Math.random() * 0xFFFFFF << 0).toString(16);
+					// var plasmaBall = new THREE.Mesh(new THREE.SphereGeometry(10, 20, 4), new THREE.MeshPhongMaterial({color: randomColor}));
+					// console.log("m",muzzleMesh.getWorldPosition());
+					// plasmaBall.position.copy(muzzleMesh.getWorldPosition());
+					// console.log("p",plasmaBall.position);
+					// scene.add(plasmaBall);
+					// plasmaBalls.push(plasmaBall);
+					// ballShootDir.push(getShootDir(plasmaBall));
+					
+				}
+		
+
+
+				for(var i=0; i < plasmaBalls.length; i++){
+				 	
+					plasmaBalls[i].position.x += ballShootDir[i].x * deltaTime*0.01;
+					// * deltaTime/100.0*50;
+					velocityH += 10*gravity*deltaTime/100.0;
+					plasmaBalls[i].position.y += 10*velocityH*deltaTime/100.0;
+					if(plasmaBalls[i].position.y < 50){
+						plasmaBalls[i].position.y = 50;
+						velocityH = 0;
+					}
+					plasmaBalls[i].position.z += ballShootDir[i].z * deltaTime*0.01;
+				}
+				// Camera now following the tank
+				if(params.FollowMe){
+					camera.position.x = tank.position.x;
+					camera.position.y = 500;
+					camera.position.z = 400 + tank.position.z;
+					camera.lookAt(tank.position);
+				}
+				
+
+				// var arrowHelper = new THREE.ArrowHelper( dir, origin, 800, 0xffff00 );
+				// scene.add( arrowHelper );
+
+				params.Heading = heading < 0 ?heading+360 :heading;
+				params.BarrelHeading = barrelHeading < 0 ?barrelHeading+360 :barrelHeading;
+			
+				renderer.render( scene, camera );
+				controls.update();
+
+			}
+
+			function drawTank(){
+				tank = new THREE.Object3D();
+  				scene.add(tank);
+  				var axisHelper = new THREE.AxesHelper( 500 );
+				tank.add( axisHelper );
+  				// body
+				var bodytexture = new THREE.TextureLoader().load( 'textures/crate.gif' );
+				
+				var bodyGeometry = new THREE.BoxBufferGeometry(carWidth, carHeight, carLength);
+				 
+				var bodyMaterial = new THREE.MeshBasicMaterial( { map: bodytexture } );
+				var bodyMesh = new THREE.Mesh(bodyGeometry, bodyMaterial);
+				bodyMesh.position.y = 41.01;
+				tank.add(bodyMesh);
+
+  				// top 
+				const domeThetaEnd = Math.PI * .5;
+				const domeGeometry = new THREE.SphereGeometry( 35, 32, 16, 0, Math.PI * 2, 0, domeThetaEnd );
+				var domeMaterial = new THREE.MeshPhongMaterial({color: 0x424200});
+				domeMesh = new THREE.Mesh(domeGeometry, domeMaterial);
+				bodyMesh.add(domeMesh);
+				domeMesh.position.y = carHeight/2;
+
+				//wheel
+				var wheelGeometry = new THREE.CylinderBufferGeometry(
+				    wheelRadius,     // top radius
+				    wheelRadius,     // bottom radius
+				    wheelThickness,  // height of cylinder
+				    wheelSegments);
+				var wheeltexture = new THREE.TextureLoader().load( 'textures/16.jpg' );
+				var wheelMaterial = new THREE.MeshPhongMaterial({map: wheeltexture});
+				var wheelPositions = [
+				  [-carWidth / 2 - wheelThickness / 2, -carHeight / 2,  carLength / 3],
+				  [ carWidth / 2 + wheelThickness / 2, -carHeight / 2,  carLength / 3],
+				  [-carWidth / 2 - wheelThickness / 2, -carHeight / 2, -carLength / 3],
+				  [ carWidth / 2 + wheelThickness / 2, -carHeight / 2, -carLength / 3],
+				];
+				wheelMeshes = wheelPositions.map((position) => {
+				  var wheelMesh = new THREE.Mesh(wheelGeometry, wheelMaterial);
+				  wheelMesh.position.set(...position);
+				  wheelMesh.rotation.z = Math.PI * .5;
+
+				  wheelMesh.castShadow = true;
+				  bodyMesh.add(wheelMesh);
+				  wheelObjects.push(wheelMesh);
+				  return wheelMesh;
+				});
+				// 3C3C3C
+				const turretWidth = 2;
+				const turretHeight = 2;
+				const turretLength = carLength * .75 * .2;
+				const turretGeometry = new THREE.BoxBufferGeometry(
+				    turretWidth, turretHeight, turretLength);
+				const turretMaterial = new THREE.MeshPhongMaterial({color: 0x3C3C3C});
+				turretMesh = new THREE.Mesh(turretGeometry, turretMaterial);
+				var turretPivot = new THREE.Object3D();
+				turretMesh.add(axisHelper);
+
+				turretPivot.scale.set(5, 5, 5);
+				turretPivot.position.y = 15;
+				turretMesh.position.z = turretLength * .5;
+				turretMesh.rotateX(-Math.PI/12);
+				turretPivot.add(turretMesh);
+				domeMesh.add(turretPivot);
+
+				 
+				
+				var muzzleGeometry = new THREE.BoxBufferGeometry(turretWidth, turretWidth, turretWidth);
+				var muzzleMaterial = new THREE.MeshPhongMaterial({color: 0x003377});
+				muzzleMesh = new THREE.Mesh(muzzleGeometry, muzzleMaterial);
+
+				muzzleMesh.position.z =10;
+				turretMesh.add(muzzleMesh);
+
+			}
+
+		</script>
+	</body>
+</html>
